@@ -87,7 +87,7 @@ def exibir_status():
         os.system('cls' if os.name == 'nt' else 'clear')
         
         print("="*55)
-        print("      LABORATÓRIO DE PROGRAMAÇÃO (VERSÃO FINAL)")
+        print("                     Programadores")
         print("="*55)
         
         with lock:
@@ -102,7 +102,6 @@ def exibir_status():
                 print(f"  -> Programador {i+1}: {estados[i]}")
         
         print("="*55)
-        print("(Pressione Ctrl+C para encerrar)")
 
         time.sleep(0.5)
 

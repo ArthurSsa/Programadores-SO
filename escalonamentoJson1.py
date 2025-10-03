@@ -16,7 +16,8 @@ class Process:
 class SchedulingSimulator:
     def __init__(self, config: dict):
         self.config = config
-        self.context_switch_cost = config.get('context_switch_cost', 1)
+        # CORREÇÃO: Acessar 'context_switch_cost' dentro de 'metadata'
+        self.context_switch_cost = config.get('metadata', {}).get('context_switch_cost', 1)
         self.processes = [
             Process(
                 pid=p['pid'],
@@ -25,6 +26,35 @@ class SchedulingSimulator:
             )
             for p in config['workload']['processes']
         ]
+
+    # =================================================================================
+    # NOVO MÉTODO ADICIONADO PARA CALCULAR A VAZÃO CORRETAMENTE
+    # =================================================================================
+    def _calculate_throughput(self, timeline: List[Dict]) -> float:
+        """Calcula a vazão com base em uma janela de tempo definida no config."""
+        T = self.config['metadata'].get('throughput_window_T')
+        
+        # Se a janela não for definida, retorna 0 ou outra métrica de fallback.
+        if not T:
+            return 0
+
+        # Encontra o tempo de conclusão final para cada processo (importante para RR)
+        completion_times = {}
+        for entry in timeline:
+            pid = entry['pid']
+            completion_times[pid] = max(completion_times.get(pid, 0), entry['end'])
+            
+        # Conta quantos processos terminaram dentro da janela T
+        processes_completed_in_window = sum(
+            1 for pid, end_time in completion_times.items() if end_time <= T
+        )
+        
+        # Evita divisão por zero
+        if T == 0:
+            return 0
+        
+        # Vazão = Processos Concluídos / Janela de Tempo
+        return processes_completed_in_window / T
         
     def simulate_fcfs(self) -> Dict:
         """First Come, First Served"""
@@ -38,20 +68,16 @@ class SchedulingSimulator:
         timeline = []
         
         for idx, proc in enumerate(processes):
-            # Aguardar processo chegar
             if current_time < proc.arrival_time:
                 current_time = proc.arrival_time
             
-            # Tempo de resposta
             response_time = current_time - proc.arrival_time
             total_response += response_time
             
-            # Troca de contexto (exceto primeiro processo)
             if idx > 0:
                 current_time += self.context_switch_cost
                 context_switches += 1
             
-            # Executar processo
             timeline.append({
                 'pid': proc.pid,
                 'start': current_time,
@@ -59,7 +85,6 @@ class SchedulingSimulator:
             })
             current_time += proc.burst_time
             
-            # Métricas
             turnaround_time = current_time - proc.arrival_time
             wait_time = turnaround_time - proc.burst_time
             
@@ -67,13 +92,16 @@ class SchedulingSimulator:
             total_turnaround += turnaround_time
         
         n = len(processes)
+        # CORREÇÃO: Chamar a função para calcular a vazão
+        throughput = self._calculate_throughput(timeline)
+
         return {
             'algorithm': 'FCFS',
             'quantum': '-',
             'avg_wait_time': total_wait / n,
             'avg_turnaround_time': total_turnaround / n,
             'avg_response_time': total_response / n,
-            'throughput': n,
+            'throughput': throughput, # CORREÇÃO: Usar o valor calculado
             'context_switches': context_switches,
             'timeline': timeline
         }
@@ -92,30 +120,24 @@ class SchedulingSimulator:
         completed = set()
         
         while len(completed) < len(processes):
-            # Processos disponíveis
             available = [p for p in processes 
                         if p.arrival_time <= current_time and p.pid not in completed]
             
             if not available:
-                # Avançar para próxima chegada
                 next_arrival = min(p.arrival_time for p in processes 
                                  if p.pid not in completed)
                 current_time = next_arrival
                 continue
             
-            # Selecionar processo com menor burst_time
             proc = min(available, key=lambda p: p.burst_time)
             
-            # Tempo de resposta
             response_time = current_time - proc.arrival_time
             total_response += response_time
             
-            # Troca de contexto (exceto primeiro)
             if len(completed) > 0:
                 current_time += self.context_switch_cost
                 context_switches += 1
             
-            # Executar processo
             timeline.append({
                 'pid': proc.pid,
                 'start': current_time,
@@ -123,7 +145,6 @@ class SchedulingSimulator:
             })
             current_time += proc.burst_time
             
-            # Métricas
             turnaround_time = current_time - proc.arrival_time
             wait_time = turnaround_time - proc.burst_time
             
@@ -132,13 +153,16 @@ class SchedulingSimulator:
             completed.add(proc.pid)
         
         n = len(processes)
+        # CORREÇÃO: Chamar a função para calcular a vazão
+        throughput = self._calculate_throughput(timeline)
+        
         return {
             'algorithm': 'SJF',
             'quantum': '-',
             'avg_wait_time': total_wait / n,
             'avg_turnaround_time': total_turnaround / n,
             'avg_response_time': total_response / n,
-            'throughput': n,
+            'throughput': throughput, # CORREÇÃO: Usar o valor calculado
             'context_switches': context_switches,
             'timeline': timeline
         }
@@ -161,30 +185,28 @@ class SchedulingSimulator:
         last_pid = None
         
         while completed < len(processes):
-            # Adicionar processos que chegaram à fila
             while idx < len(processes) and processes[idx].arrival_time <= current_time:
                 queue.append(processes[idx])
                 idx += 1
             
             if not queue:
-                # Fila vazia, avançar para próxima chegada
-                current_time = processes[idx].arrival_time
+                if idx < len(processes):
+                    current_time = processes[idx].arrival_time
                 continue
             
-            # Pegar próximo processo da fila
             proc = queue.pop(0)
             
-            # Registrar tempo de resposta na primeira execução
             if proc.first_response == -1:
                 proc.first_response = current_time
                 total_response += current_time - proc.arrival_time
             
-            # Troca de contexto (se mudou de processo)
+            # A troca de contexto deve ser antes da execução
             if last_pid is not None and last_pid != proc.pid:
                 current_time += self.context_switch_cost
                 context_switches += 1
-            
-            # Executar por quantum ou tempo restante
+            elif last_pid is None: # Primeira execução de processo
+                last_pid = proc.pid
+
             exec_time = min(quantum, proc.remaining_time)
             timeline.append({
                 'pid': proc.pid,
@@ -194,18 +216,15 @@ class SchedulingSimulator:
             
             current_time += exec_time
             proc.remaining_time -= exec_time
-            last_pid = proc.pid
+            last_pid = proc.pid # Atualiza o último processo que executou
             
-            # Adicionar novos processos que chegaram durante execução
             while idx < len(processes) and processes[idx].arrival_time <= current_time:
                 queue.append(processes[idx])
                 idx += 1
             
             if proc.remaining_time > 0:
-                # Processo não terminou, volta para fila
                 queue.append(proc)
             else:
-                # Processo concluído
                 turnaround_time = current_time - proc.arrival_time
                 wait_time = turnaround_time - proc.burst_time
                 total_wait += wait_time
@@ -213,21 +232,26 @@ class SchedulingSimulator:
                 completed += 1
         
         n = len(processes)
+        # CORREÇÃO: Chamar a função para calcular a vazão
+        throughput = self._calculate_throughput(timeline)
+
         return {
             'algorithm': 'RR',
             'quantum': quantum,
             'avg_wait_time': total_wait / n,
             'avg_turnaround_time': total_turnaround / n,
             'avg_response_time': total_response / n,
-            'throughput': n,
+            'throughput': throughput, # CORREÇÃO: Usar o valor calculado
             'context_switches': context_switches,
             'timeline': timeline
         }
-    
+   
     def run_all_simulations(self) -> List[Dict]:
         """Executa todas as simulações configuradas"""
         results = []
-        algorithms = self.config.get('algorithms', [])
+        
+        metadata = self.config.get('metadata', {})
+        algorithms = metadata.get('algorithms', [])
         
         for algo in algorithms:
             if algo == 'FCFS':
@@ -235,7 +259,7 @@ class SchedulingSimulator:
             elif algo == 'SJF':
                 results.append(self.simulate_sjf())
             elif algo == 'RR':
-                quantums = self.config.get('rr_quantums', [])
+                quantums = metadata.get('rr_quantums', [])
                 for q in quantums:
                     results.append(self.simulate_rr(q))
         
@@ -247,25 +271,26 @@ class SchedulingSimulator:
         print("RESULTADOS DA SIMULAÇÃO DE ESCALONAMENTO")
         print("="*100 + "\n")
         
-        # Cabeçalho
         print(f"{'Algoritmo':<12} {'Quantum':<10} {'Tempo Espera':<15} {'Tempo Retorno':<15} "
-              f"{'Tempo Resposta':<17} {'Vazão':<8} {'Trocas Ctx':<12}")
-        print("-"*100)
+              f"{'Tempo Resposta':<17} {'Vazão (p/tick)':<18} {'Trocas Ctx':<12}")
+        print("-"*110)
         
-        # Resultados
         for r in results:
             algo_name = f"{r['algorithm']}" if r['quantum'] == '-' else f"{r['algorithm']}(q={r['quantum']})"
             print(f"{algo_name:<12} {str(r['quantum']):<10} "
                   f"{r['avg_wait_time']:<15.2f} {r['avg_turnaround_time']:<15.2f} "
-                  f"{r['avg_response_time']:<17.2f} {r['throughput']:<8} "
+                  f"{r['avg_response_time']:<17.2f} {r['throughput']:<18.3f} " # Ajustado para float
                   f"{r['context_switches']:<12}")
         
         print("\n" + "="*100)
         
-        # Análise comparativa
         print("\nANÁLISE COMPARATIVA:")
         print("-"*100)
         
+        if not results:
+            print("Nenhum resultado para analisar.")
+            return
+
         best_wait = min(results, key=lambda x: x['avg_wait_time'])
         print(f"✓ Menor tempo médio de espera: {best_wait['algorithm']}" + 
               (f" (quantum={best_wait['quantum']})" if best_wait['quantum'] != '-' else '') +
@@ -286,36 +311,39 @@ class SchedulingSimulator:
               (f" (quantum={min_switches['quantum']})" if min_switches['quantum'] != '-' else '') +
               f" com {min_switches['context_switches']} trocas")
         
-        print("="*100 + "\n")
+        print("-"*104)
 
 
 def main():
     # Configuração de exemplo
     config = {
         "spec_version": "1.0",
-        "challenge_id": "rr-fcfs-sjf-demo",
-        "metadata": {},
-        "context_switch_cost": 1,
-        "throughput_window_T": 100,
-        "algorithms": ["FCFS", "SJF", "RR"],
-        "rr_quantums": [1, 2, 4, 8, 16],
+        "challenge_id": "os_rr_fcfs_sjf_demo_manual_1",
+        "metadata": {
+            "context_switch_cost": 1,
+            "throughput_window_T": 20,
+            "algorithms": ["FCFS", "SJF", "RR"],
+            "rr_quantums": [2, 4, 8]
+        },
         "workload": {
             "time_unit": "ticks",
             "processes": [
-                {"pid": "P01", "arrival_time": 0, "burst_time": 5},
-                {"pid": "P02", "arrival_time": 1, "burst_time": 17},
-                {"pid": "P03", "arrival_time": 2, "burst_time": 3},
-                {"pid": "P04", "arrival_time": 4, "burst_time": 22},
-                {"pid": "P05", "arrival_time": 6, "burst_time": 7}
+              { "pid": "P01", "arrival_time": 0,  "burst_time": 6 },
+              { "pid": "P02", "arrival_time": 1,  "burst_time": 3 },
+              { "pid": "P03", "arrival_time": 2,  "burst_time": 8 },
+              { "pid": "P04", "arrival_time": 4,  "burst_time": 4 },
+              { "pid": "P05", "arrival_time": 6,  "burst_time": 5 }
             ]
         }
     }
     
     # Ou carregar de arquivo JSON
-    # with open('config.json', 'r') as f:
-    #     config = json.load(f)
-    
-    # Executar simulação
+    # try:
+    #     with open('config.json', 'r') as f:
+    #         config = json.load(f)
+    # except FileNotFoundError:
+    #     print("Arquivo 'config.json' não encontrado. Usando configuração de exemplo.")
+
     simulator = SchedulingSimulator(config)
     results = simulator.run_all_simulations()
     simulator.print_results(results)
