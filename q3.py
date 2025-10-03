@@ -149,13 +149,11 @@ class VeterinaryRoomSimulator:
             if admitted_animals:
                 print(f" ENTRARAM: {', '.join([f'{a.id} ({a.species})' for a in admitted_animals])}")
             
-            # Status atual
             print(f"\nSTATUS ATUAL:")
             print(f"    Placa: {current_sign}")
             print(f"    Na sala: {', '.join([f'{a.id}({a.remaining_rest})' for a in animals_in_room]) if animals_in_room else 'VAZIA'}")
             print(f"    Na fila: {', '.join([f'{a.id}({a.species})' for a in waiting_queue]) if waiting_queue else 'VAZIA'}")
             
-            # Avançar o tempo
             if animals_in_room:
                 for animal in animals_in_room:
                     animal.remaining_rest -= 1
@@ -172,7 +170,7 @@ class VeterinaryRoomSimulator:
                 break
         
         if iterations >= max_iterations:
-            print("\n AVISO: Número máximo de iterações atingido!")
+            print("\n AVISO: Numero maximo de iterações atingido!")
         
         
         n = len(animals)
@@ -189,14 +187,14 @@ class VeterinaryRoomSimulator:
         """Imprime resultados formatados"""
         print("RESUMO FINAL DA SIMULAÇÃO")
         print("\n" + "="*100)
-        print("MÉTRICAS GERAIS:")
+        print("Metricas gerais:")
         print("-"*100)
         print(f"  • Total de animais processados: {results['total_animals']}")
-        print(f"  • Tempo médio de espera: {results['avg_wait_time']:.2f} ticks")
-        print(f"  • Tempo médio de retorno: {results['avg_turnaround_time']:.2f} ticks")
+        print(f"  • Tempo medio de espera: {results['avg_wait_time']:.2f} ticks")
+        print(f"  • Tempo medio de retorno: {results['avg_turnaround_time']:.2f} ticks")
         print(f"  • Total de trocas de placa: {results['total_sign_changes']}")
         print(f"  • Tempo total de simulação: {results['total_time']} ticks")
-        print("="*100 + "\n")
+        print("\n")
 
 def main():
     config = {
