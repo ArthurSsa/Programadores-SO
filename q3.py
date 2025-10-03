@@ -1,10 +1,8 @@
-import json
 import threading
 import time
-from typing import List, Dict
+from typing import Dict
 from dataclasses import dataclass, field
 from collections import deque
-from queue import PriorityQueue
 
 @dataclass
 class Animal:
